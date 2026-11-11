@@ -1,0 +1,12 @@
+{
+  "name": "gist-app",
+  "version": "2.0.0",
+  "private": true,
+  "scripts": { "start": "node server.js", "cron": "node cron.js" },
+  "engines": { "node": ">=18" },
+  "dependencies": {
+    "express": "4.21.2",
+    "pg": "8.13.1",
+    "youtube-transcript": "1.2.1"
+  }
+}

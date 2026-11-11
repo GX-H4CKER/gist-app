@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Gist: skip the hour, get the point</title>
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@500;700&family=Quicksand:wght@500;700&display=swap" rel="stylesheet">
+<style>
+:root{--ink:#f4e9ef;--gold:#f3dca6;--gold2:#d8a24a;--rose:#ff5c9d;--serif:"Cormorant Garamond",Georgia,serif;--sans:"Quicksand",system-ui,sans-serif}
+*{box-sizing:border-box;margin:0}
+body{font-family:var(--sans);color:var(--ink);line-height:1.6;min-height:100vh;
+ background:radial-gradient(45vw 45vw at 5% 5%,rgba(255,92,157,.28),transparent 70%),radial-gradient(45vw 45vw at 95% 40%,rgba(216,162,74,.18),transparent 70%),linear-gradient(165deg,#220a2c,#12061a 60%,#0b030f);background-attachment:fixed}
+main{max-width:880px;margin:0 auto;padding:3.5rem 1.2rem 5rem}
+h1{font:italic 700 clamp(3rem,10vw,5.5rem)/1 var(--serif);color:var(--gold)}
+.tag{font-size:1.15rem;margin:.6rem 0 2rem;opacity:.9}
+form{display:flex;gap:.6rem;flex-wrap:wrap}
+input{flex:1 1 280px;font:500 1rem var(--sans);padding:.95rem 1.2rem;border-radius:99px;border:1.5px solid rgba(216,162,74,.5);background:rgba(255,255,255,.07);color:var(--ink)}
+input::placeholder{color:#f4e9ef99}
+button{font:700 1rem var(--sans);border:0;border-radius:99px;padding:.95rem 1.8rem;cursor:pointer;color:#2a0f2c;background:linear-gradient(135deg,var(--gold),var(--gold2));box-shadow:0 8px 24px rgba(216,162,74,.3)}
+button:disabled{opacity:.6;cursor:wait}
+button.small{padding:.5rem 1rem;font-size:.85rem}
+button.ghost{background:transparent;color:var(--gold);box-shadow:inset 0 0 0 1.5px rgba(216,162,74,.7)}
+:focus-visible{outline:3px solid var(--rose);outline-offset:3px}
+#status{margin:1.2rem 0;font-style:italic;font-family:var(--serif);font-size:1.4rem;color:var(--rose);min-height:2rem}
+.card{background:rgba(255,255,255,.06);border:1px solid rgba(216,162,74,.28);border-radius:22px;padding:1.3rem 1.4rem;margin:1.1rem 0;box-shadow:0 14px 40px rgba(0,0,0,.35)}
+h2{font:italic 700 1.9rem var(--serif);color:var(--gold);margin-bottom:.6rem}
+h3{font:700 1.05rem var(--sans)}
+.player{aspect-ratio:16/9;width:100%;border:0;border-radius:16px;background:#000}
+ul{list-style:none;padding:0}
+li{padding:.7rem 0;border-bottom:1px solid rgba(216,162,74,.15)}
+li:last-child{border:0}
+.t{font:700 .85rem var(--sans);color:#2a0f2c;background:var(--gold);border-radius:99px;padding:.15rem .7rem;margin-right:.6rem;cursor:pointer;border:0;display:inline-block;box-shadow:none}
+.why{opacity:.8;font-size:.95rem}
+blockquote{font:italic 700 1.4rem/1.3 var(--serif);padding:.5rem 0 .5rem 1rem;border-left:3px solid var(--rose);margin:.7rem 0}
+.row{display:flex;justify-content:space-between;align-items:center;gap:1rem;flex-wrap:wrap}
+.item{display:flex;gap:1rem;align-items:center;padding:.8rem 0;border-bottom:1px solid rgba(216,162,74,.15)}
+.item:last-child{border:0}
+.item img{border-radius:12px;flex:none}
+.av{width:56px;height:56px;border-radius:50%}
+.vid{width:140px;height:79px;object-fit:cover}
+.grow{flex:1;min-width:0}
+.meta{font-size:.85rem;opacity:.75}
+@media(max-width:520px){.vid{width:96px;height:54px}}
+</style>
+</head>
+<body>
+<main>
+  <h1>Gist</h1>
+  <p class="tag">Type the name of a YouTube channel. Pick a video. Get the summary, key points and best moments in under a minute.</p>
+  <form id="f">
+    <input id="q" placeholder="Channel name, e.g. Diary Of A CEO (or paste a video link)" required aria-label="Channel name or video link">
+    <button id="go">Find</button>
+  </form>
+  <div id="status" role="status"></div>
+  <div id="pick"></div>
+  <div id="follows"></div>
+  <div id="queue"></div>
+  <div id="out"></div>
+</main>
+<script>
+const $=s=>document.querySelector(s);
+const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const clock=t=>{t=Math.floor(t);const h=Math.floor(t/3600),m=Math.floor(t%3600/60),s=t%60;return(h?h+':'+String(m).padStart(2,'0'):m)+':'+String(s).padStart(2,'0')};
+const say=m=>$('#status').textContent=m||'';
+let code='';try{code=localStorage.getItem('gist-code')||''}catch{}
+const done={},vids=[];
+
+async function api(path,body,method){
+  const run=()=>fetch(path,{method:method||(body?'POST':'GET'),headers:{'Content-Type':'application/json','x-access-code':code},body:body?JSON.stringify(body):undefined});
+  let r=await run();
+  if(r.status===401){code=prompt('Enter the access code:')||'';try{localStorage.setItem('gist-code',code)}catch{}r=await run()}
+  const j=await r.json().catch(()=>({}));
+  if(!r.ok)throw new Error(j.error||'Something went wrong');
+  return j;
+}
+
+$('#f').onsubmit=async e=>{
+  e.preventDefault();const q=$('#q').value.trim();$('#go').disabled=true;$('#pick').innerHTML='';
+  try{
+    if(/youtu\.?be|[?&]v=/.test(q)){await gist(q)}
+    else{
+      say('Searching for “'+q+'”…');
+      const {channels}=await api('/api/channel?q='+encodeURIComponent(q));
+      if(!channels.length){say('No channel found. Try the exact name.');}
+      else{say('');$('#pick').innerHTML='<div class="card"><h2>Which channel?</h2>'+channels.map(c=>`<div class="item"><img class="av" src="${esc(c.thumb)}" alt=""><div class="grow"><h3>${esc(c.title)}</h3><div class="meta">${c.subs==null?'Subscribers hidden':c.subs.toLocaleString()+' subscribers'}</div></div><div style="display:flex;gap:.4rem;flex-wrap:wrap"><button class="small ghost" data-follow="${esc(c.id)}" data-title="${esc(c.title)}" data-thumb="${esc(c.thumb)}" data-fup="${esc(c.uploads)}">Follow</button><button class="small" data-up="${esc(c.uploads)}" data-name="${esc(c.title)}">Choose</button></div></div>`).join('')+'</div>'}
+    }
+  }catch(err){say(err.message)}
+  $('#go').disabled=false;
+};
+
+$('#pick').onclick=async e=>{
+  const b=e.target.closest('button');if(!b)return;
+  if(b.dataset.follow){try{await api('/api/follows',{id:b.dataset.follow,title:b.dataset.title,thumb:b.dataset.thumb,uploads:b.dataset.fup});b.textContent='Following ✓';loadFollows()}catch(err){say(err.message)}return}
+  if(b.dataset.up){
+    say('Loading latest videos from '+b.dataset.name+'…');
+    try{
+      const {videos}=await api('/api/channel?uploads='+encodeURIComponent(b.dataset.up));
+      vids.length=0;vids.push(...videos);
+      if(!videos.length){say('No long videos found on this channel recently.');return}
+      say('');
+      $('#pick').innerHTML=`<div class="card"><div class="row"><h2 style="margin:0">${esc(b.dataset.name)}: latest videos</h2><button class="small ghost" data-all="1">Gist the latest 3</button></div>`+
+        videos.map(v=>`<div class="item"><img class="vid" src="${esc(v.thumb)}" alt=""><div class="grow"><h3>${esc(v.title)}</h3><div class="meta">${new Date(v.date).toLocaleDateString()} · ${clock(v.seconds)}</div></div><button class="small" data-vid="${esc(v.id)}">Get gist</button></div>`).join('')+'</div>';
+    }catch(err){say(err.message)}
+  }else if(b.dataset.vid){await gist(b.dataset.vid)}
+  else if(b.dataset.all){for(let i=0;i<Math.min(3,vids.length);i++){say(`Reading video ${i+1} of ${Math.min(3,vids.length)}…`);await gist(vids[i].id,true)}say('')}
+};
+
+async function loadFollows(){
+  try{const f=await api('/api/follows');
+    $('#follows').innerHTML='<div class="card"><h2>Channels I follow</h2>'+(f.length?f.map(c=>`<div class="item"><img class="av" src="${esc(c.thumb)}" alt=""><div class="grow"><h3>${esc(c.title)}</h3></div><button class="small ghost" data-unf="${esc(c.id)}">Unfollow</button></div>`).join('')+'<p class="meta" style="margin-top:.7rem">Every morning the app checks these channels and adds the best new videos to your queue.</p>':'<p class="meta">Nothing yet. Search for a channel above and tap Follow.</p>')+'</div>'}catch{}
+}
+const qdata={};
+async function loadQueue(){
+  try{const q=await api('/api/queue');q.forEach(x=>qdata[x.id]=x.data);
+    $('#queue').innerHTML='<div class="card"><h2>Review queue</h2>'+(q.length?q.map(x=>`<div class="item"><div class="grow"><h3>${esc(x.title)}</h3><div class="meta">${esc(x.channel_title)} · ${esc(x.status)}</div><div class="why">${esc((x.data.summary||'').slice(0,160))}…</div></div><div style="display:flex;gap:.4rem;flex-wrap:wrap"><button class="small ghost" data-view="${esc(x.id)}">View</button><button class="small" data-st="approved" data-q="${esc(x.id)}">Approve</button><button class="small ghost" data-st="rejected" data-q="${esc(x.id)}">Reject</button></div></div>`).join(''):'<p class="meta">Empty. New picks appear here after the daily run.</p>')+'</div>'}catch{}
+}
+$('#follows').onclick=async e=>{const b=e.target.closest('[data-unf]');if(!b)return;try{await api('/api/follows/'+encodeURIComponent(b.dataset.unf),null,'DELETE');loadFollows()}catch(err){say(err.message)}};
+$('#queue').onclick=async e=>{
+  const v=e.target.closest('[data-view]');
+  if(v){const d=qdata[v.dataset.view];if(!d)return;if(!done[d.videoId]){done[d.videoId]=d;$('#out').insertAdjacentHTML('afterbegin',result(d))}document.getElementById('r-'+d.videoId).scrollIntoView({behavior:'smooth'});return}
+  const s=e.target.closest('[data-st]');
+  if(s){try{await api('/api/queue/'+encodeURIComponent(s.dataset.q),{status:s.dataset.st});loadQueue()}catch(err){say(err.message)}}
+};
+loadFollows();loadQueue();
+
+async function gist(urlOrId,quiet){
+  const id=(urlOrId.match(/(?:v=|youtu\.be\/|shorts\/|embed\/|live\/)([\w-]{11})/)||[])[1]||urlOrId;
+  if(done[id]){document.getElementById('r-'+id)?.scrollIntoView({behavior:'smooth'});return}
+  if(!quiet)say('Reading the whole video so you don’t have to… (about 30 seconds)');
+  try{
+    const d=await api('/api/summarize',{url:urlOrId});
+    done[id]=d;$('#out').insertAdjacentHTML('afterbegin',result(d));
+    if(!quiet){say('');document.getElementById('r-'+id).scrollIntoView({behavior:'smooth'})}
+  }catch(err){say(err.message)}
+}
+const stamp=(id,t)=>`<button class="t" data-id="${id}" data-t="${Math.floor(t)}" aria-label="Play from ${clock(t)}">▶ ${clock(t)}</button>`;
+function result(d){return `<div class="result" id="r-${d.videoId}">
+  <div class="card"><iframe class="player" src="https://www.youtube-nocookie.com/embed/${d.videoId}" allow="accelerometer;autoplay;encrypted-media;picture-in-picture" allowfullscreen title="Video"></iframe></div>
+  <div class="card"><h2>${esc(d.title)}</h2><p>${esc(d.summary)}</p></div>
+  <div class="card"><h2>Key takeaways</h2><ul>${(d.takeaways||[]).map(x=>`<li>${stamp(d.videoId,x.time)}${esc(x.text)}</li>`).join('')}</ul></div>
+  <div class="card"><h2>Best moments</h2><ul>${(d.moments||[]).map(x=>`<li>${stamp(d.videoId,x.time)}<h3 style="display:inline">${esc(x.title)}</h3><div class="why">${esc(x.why)}</div></li>`).join('')}</ul></div>
+  <div class="card"><h2>Quotable lines</h2>${(d.quotes||[]).map(q=>`<blockquote>“${esc(q)}”</blockquote>`).join('')}</div>
+  <div class="card row"><div><h2 style="margin:0">Share it</h2><span class="why">Copies a ready-to-post summary with links to the original video.</span></div><button class="small" data-copy="${d.videoId}">Copy post</button></div></div>`}
+
+$('#out').onclick=async e=>{
+  const t=e.target.closest('.t');
+  if(t){const box=t.closest('.result'),f=box.querySelector('iframe');
+    f.src=`https://www.youtube-nocookie.com/embed/${t.dataset.id}?start=${t.dataset.t}&autoplay=1`;f.scrollIntoView({behavior:'smooth',block:'center'});return}
+  const c=e.target.closest('[data-copy]');
+  if(c){const d=done[c.dataset.copy];
+    const txt=`${d.title}\n\n${d.summary}\n\nKey points:\n${(d.takeaways||[]).slice(0,5).map(x=>`• ${x.text} (${clock(x.time)})`).join('\n')}\n\nWatch the best part: https://youtu.be/${d.videoId}?t=${Math.floor((d.moments&&d.moments[0]?d.moments[0].time:0))}\nFull video: https://youtu.be/${d.videoId}`;
+    try{await navigator.clipboard.writeText(txt);c.textContent='Copied!'}catch{prompt('Copy this:',txt)}}
+};
+</script>
+</body>
+</html>
